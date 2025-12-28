@@ -469,7 +469,7 @@ FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
 
 **Reconix Development Team**
 
-- GitHub: [@yourusername](https://github.com/sawsage8050)
+- GitHub: [@sawsage](https://github.com/sawsage8050)
 - Website: [reconix-tool.com](https://reconix-tool.com) *(Coming Soon)*
 
 ---
