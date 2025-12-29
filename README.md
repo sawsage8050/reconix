@@ -172,8 +172,7 @@ Seriously, don't be that guy who scans his university network and gets expelled.
 
 ## License
 
-MIT License - do whatever you want with it.
-
+[MIT License].() 
 ## Credits
 
 Built using:
@@ -187,7 +186,7 @@ Built using:
 
 ## Author
 
-GitHub: [@sawsage8050](https://github.com/sawsage8050)
+GitHub: [@sawsage8050](https://github.com/Aditya-k-Jangid)
 
 ## Known Issues
 
