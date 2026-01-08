@@ -17,95 +17,134 @@
 
 ---
 
-## What is this?
+## Table of Contents
 
-Reconix is a network reconnaissance and enumeration tool built with **custom implementations** of common penetration testing utilities. Instead of relying on external tools like Hydra and Gobuster, Reconix includes **handwritten brute force** and **web fuzzing engines** written in Python.
-
-After completing a scan, it provides an **interactive post-scan menu** that allows further enumeration, exploitation assistance, and reporting - all with minimal external dependencies.
+- [About](#about)
+- [Features](#features)
+- [Installation](#installation)
+- [Usage](#usage)
+- [Interactive Menu](#interactive-menu)
+- [Examples](#examples)
+- [Configuration](#configuration)
+- [Troubleshooting](#troubleshooting)
+- [Legal Disclaimer](#legal-disclaimer)
 
 ---
 
-## Key Features
+## About
 
-### Scanning & Enumeration
+Reconix is a comprehensive network scanning framework designed for security professionals and penetration testers. It combines multiple reconnaissance and exploitation techniques into a single interactive tool with automated reporting capabilities.
 
-* Host discovery with aggressive mode to reduce false positives
-* Port scanning (fast, normal, or full 65535 ports)
-* Service and version detection
-* OS fingerprinting
-* Network topology visualization
+**Version:** 1.0  
+**Platform:** Linux (Kali/Ubuntu/Debian)  
+**Requirements:** Python 3.8+, Root privileges
 
-### Post-Scan Modules
+---
 
-* **SearchSploit integration** - Automatic exploit discovery
-* **Metasploit automation** - Creates `.rc` resource scripts and auto-launches msfconsole
-* **Brute force attacks** - Custom implementation (no Hydra needed)
-* **SMB enumeration** - List shares and recursively download files
-* **Web fuzzing** - Custom directory/subdomain/vhost scanner (no Gobuster needed)
-* **HTML reports** - Professional reports with interactive charts (Chart.js)
-* **Security recommendations** - Automated hardening advice
-* **Responder integration** - MITM attacks (optional)
+## Features
+
+### Network Reconnaissance
+- Multi-method host discovery (ICMP, TCP, ARP)
+- Full port scanning (TCP/UDP)
+- Service version detection
+- Operating system fingerprinting
+- Customizable timing and intensity
+
+### Vulnerability Assessment
+- Built-in vulnerability database
+- CVE mapping for detected services
+- Integration with searchsploit
+- Automated exploit searching
+
+### Exploitation Tools
+- Metasploit resource script generation
+- SSH/FTP/SMB brute force attacks
+- Anonymous access testing
+- Credential validation
+
+### SMB Enumeration
+- Share discovery and listing
+- Permission testing
+- Recursive file download
+- Anonymous and authenticated access
+
+### Web Application Testing
+- Directory fuzzing
+- Subdomain enumeration
+- Virtual host discovery
+- Multi-threaded scanning
+
+### Reporting
+- Interactive tree-view network maps
+- Detailed HTML reports with charts
+- JSON export functionality
+- Security hardening recommendations
+
+### Additional Features
+- MITM attack capabilities (Responder integration)
+- Post-scan interactive menu
+- Color-coded output
+- Progress indicators
 
 ---
 
 ## Installation
 
-### Requirements
-
-* Linux (tested on Kali Linux / Parrot OS)
-* Python 3.8+
-* Root access (for raw sockets and privileged operations)
-
-### Quick Install
+### Method 1: Automated Installation (Recommended)
 
 ```bash
-git clone https://github.com/sawsage8050/reconix.git
+git clone https://github.com/yourusername/reconix.git
 cd reconix
 chmod +x installer.sh
 sudo ./installer.sh
 ```
 
-The installer script sets up:
-* System dependencies (nmap, smbclient, exploitdb, responder)
-* Python packages (see requirements.txt)
-* Common wordlists (SecLists)
+The installer will:
+- Update system packages
+- Install required system tools
+- Install Python dependencies
+- Optionally install Metasploit and Responder
+- Verify all installations
 
----
+### Method 2: Manual Installation
 
-### Manual Install
-
-#### 1. System Packages
+#### Step 1: Install System Tools
 
 ```bash
 sudo apt update
-sudo apt install -y python3 python3-pip nmap exploitdb
-sudo apt install -y smbclient responder git
+sudo apt install -y nmap exploitdb seclists python3 python3-pip git
 ```
 
-#### 2. Python Dependencies
+#### Step 2: Install Python Dependencies
 
 ```bash
 pip3 install -r requirements.txt
 ```
 
-#### 3. Wordlists (Required for fuzzing and brute force)
+Or with system packages flag:
 
 ```bash
-# Install SecLists
-sudo apt install -y seclists
-
-# Or manually:
-sudo git clone https://github.com/danielmiessler/SecLists.git /usr/share/seclists
-
-# Extract rockyou.txt (if compressed)
-sudo gunzip /usr/share/wordlists/rockyou.txt.gz 2>/dev/null || true
+pip3 install -r requirements.txt --break-system-packages
 ```
 
-**Note:** The tool expects wordlists at these locations:
+#### Step 3: Install Optional Tools
+
+**Metasploit Framework:**
+```bash
+curl https://raw.githubusercontent.com/rapid7/metasploit-omnibus/master/config/templates/metasploit-framework-wrappers/msfupdate.erb > msfinstall
+chmod 755 msfinstall
+sudo ./msfinstall
 ```
-/usr/share/wordlists/rockyou.txt
-/usr/share/seclists/Discovery/Web-Content/common.txt
-/usr/share/seclists/Discovery/DNS/subdomains-top1million-*.txt
+
+**Responder:**
+```bash
+sudo apt install responder
+```
+
+Or:
+```bash
+git clone https://github.com/lgandx/Responder.git /opt/Responder
+sudo ln -s /opt/Responder/Responder.py /usr/local/bin/responder
 ```
 
 ---
@@ -115,284 +154,316 @@ sudo gunzip /usr/share/wordlists/rockyou.txt.gz 2>/dev/null || true
 ### Basic Syntax
 
 ```bash
-sudo python3 reconix.py [options] <target>
+sudo python3 reconix.py [OPTIONS] <target>
 ```
 
-### Common Options
+### Command Line Options
 
-```
-TARGET:
-  <target>              Network or IP (e.g., 192.168.1.0/24, 10.0.0.1)
-
-SCAN OPTIONS:
-  -sA, --all-ports      Scan all 65535 ports
-  -sF, --fast           Fast scan (top 100 ports)
-  -PA, --aggressive-discovery  Accurate host discovery
-  -T0 to -T5            Timing (0=slow, 5=fast)
-
-OPTIONS:
-  -h, --help            Show help menu
-  -v, --verbose         Verbose output
-  -q, --quiet           Quiet mode
-  -o, --output FILE     Save to JSON file
-```
-
----
-
-### Examples
-
-```bash
-# Basic scan
-sudo python3 reconix.py 192.168.1.0/24
-
-# Accurate host discovery (reduces false positives)
-sudo python3 reconix.py -PA 172.16.8.0/24
-
-# Fast scan with aggressive timing
-sudo python3 reconix.py -sF -T4 10.0.0.0/24
-
-# Scan all ports on a single host
-sudo python3 reconix.py -sA 192.168.1.100
-```
+| Option | Description |
+|--------|-------------|
+| `<target>` | Target network or IP (e.g., 192.168.1.0/24) |
+| `-h, --help` | Display help menu |
+| `-sA, --all-ports` | Scan all 65535 ports |
+| `-sF, --fast` | Fast scan (top 100 ports) |
+| `-PA, --aggressive-discovery` | Aggressive host discovery |
+| `-T0` to `-T5` | Timing template (0=paranoid, 5=insane) |
+| `-o, --output FILE` | Save results to JSON file |
+| `-v, --verbose` | Verbose output |
+| `-q, --quiet` | Quiet mode |
+| `--vuln-scan` | Enable vulnerability scanning |
 
 ---
 
 ## Interactive Menu
 
-After the scan completes, Reconix presents an interactive menu:
+After completing a scan, Reconix presents an interactive menu:
 
 ```
-[1] 🔍 Deep Vulnerability Analysis - SearchSploit lookup
-[2] 🎯 Attempt Exploitation - Metasploit automation (.rc scripts)
-[3] 🔨 Brute Force Attacks - Custom engine (SSH/FTP/SMB)
-[4] 📊 Generate Security Report - HTML with charts
-[5] 🗂️  SMB Share Enumeration - List and download shares
-[6] 🌐 Web Application Fuzzing - Custom fuzzer (directory/subdomain/vhost)
-[7] 🛡️  Get Hardening Recommendations
-[8] 🔴 Man-in-the-Middle - Responder
-[9] 🔄 Re-scan Options
-[0] 🚪 Exit
+[1] Deep Vulnerability Analysis    - Search exploits with searchsploit
+[2] Attempt Exploitation           - Generate Metasploit resource scripts
+[3] Brute Force Attacks            - SSH/FTP/SMB password attacks
+[4] Generate Security Report       - Create HTML report with charts
+[5] SMB Share Enumeration          - List and download SMB shares
+[6] Web Application Scanning       - Directory/subdomain/vhost fuzzing
+[7] Get Hardening Recommendations  - Security improvement suggestions
+[8] Man-in-the-Middle              - Network poisoning with Responder
+[9] Re-scan Options                - Restart with new parameters
+[0] Exit
 ```
-
-### Module Details
-
-#### [3] Custom Brute Force Engine
-
-Supports 3 attack modes:
-1. **Full Brute Force** - Tests all username:password combinations
-2. **Password Spray** - Tests one password against all users (stealthier)
-3. **Anonymous Login** - Tests anonymous/null authentication
-
-Protocols supported:
-* SSH (port 22) - via paramiko
-* FTP (port 21) - via ftplib
-* SMB (port 445) - via impacket
-
-#### [6] Custom Web Fuzzer
-
-3 fuzzing modes:
-1. **Directory Fuzzing** - Enumerate web directories and files
-2. **Subdomain Fuzzing** - Discover subdomains via DNS/HTTP
-3. **VHost Fuzzing** - Virtual host enumeration (same IP, different hosts)
-
-3 intensity levels:
-* LOW (~1,000 requests)
-* MEDIUM (~20,000 requests)
-* HIGH (~100,000+ requests)
 
 ---
 
-## Testing & Lab Setup
+## Examples
 
-**⚠️ Do NOT scan random systems on the internet. That is illegal.**
-
-### Legal Testing Options
-
-* Your own home network
-* Vulnerable VMs (Metasploitable 2/3, HackTheBox, TryHackMe)
-* Docker labs (DVWA, Juice Shop)
-* College or corporate labs **with written permission**
-
-### Quick Lab Setup Example
+### Example 1: Basic Network Scan
 
 ```bash
-# Download VirtualBox and Metasploitable 2
-# Set network adapter to Host-Only
-# Find the network range:
-ip addr show vboxnet0
-
-# Scan the range:
-sudo python3 reconix.py -PA 192.168.56.0/24
+sudo python3 reconix.py 192.168.1.0/24
 ```
+
+Scans entire subnet with default settings (top 1000 ports).
+
+### Example 2: Fast Scan
+
+```bash
+sudo python3 reconix.py -sF 10.0.0.0/24
+```
+
+Quick scan of top 100 ports for faster results.
+
+### Example 3: Comprehensive Scan
+
+```bash
+sudo python3 reconix.py -sA -T4 192.168.1.0/24
+```
+
+Scans all 65535 ports with aggressive timing.
+
+### Example 4: Accurate Host Discovery
+
+```bash
+sudo python3 reconix.py -PA 172.16.0.0/24
+```
+
+Uses port probing for accurate host detection.
+
+### Example 5: Single Host Deep Scan
+
+```bash
+sudo python3 reconix.py -sA --vuln-scan 192.168.1.100
+```
+
+Full port scan with vulnerability detection on single host.
+
+### Example 6: Save Results
+
+```bash
+sudo python3 reconix.py -o results.json 192.168.1.0/24
+```
+
+Saves scan results to JSON file.
+
+### Example 7: Quiet Mode
+
+```bash
+sudo python3 reconix.py -q -o scan.json 10.0.0.0/24
+```
+
+Minimal output, saves to file only.
 
 ---
 
-## Wordlists
+## Configuration
 
-### Default Locations
+### Wordlist Locations
 
-The tool automatically looks for wordlists here:
+Reconix expects SecLists in standard locations:
 
 ```
-# Passwords
-/usr/share/wordlists/rockyou.txt
+/usr/share/seclists/Discovery/Web-Content/
+/usr/share/seclists/Discovery/DNS/
+```
 
-# Web directories
-/usr/share/seclists/Discovery/Web-Content/common.txt
-/usr/share/seclists/Discovery/Web-Content/directory-list-2.3-medium.txt
-
-# Subdomains
-/usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt
-/usr/share/seclists/Discovery/DNS/subdomains-top1million-20000.txt
+Install SecLists:
+```bash
+sudo apt install seclists
 ```
 
 ### Custom Wordlists
 
-When prompted, you can provide any custom wordlist path:
+When prompted during fuzzing, you can specify custom wordlist paths:
+
 ```
-Enter wordlist path: /home/user/custom-passwords.txt
+Enter custom wordlist path: /path/to/custom/wordlist.txt
 ```
 
----
+### Timing Templates
 
-## Output
-
-Reconix generates these files:
-
-* `reconix_report.json` - Scan results in JSON format
-* `reconix_report_YYYYMMDD_HHMMSS.html` - Professional HTML report with charts
-* `reconix_exploit_YYYYMMDD_HHMMSS.rc` - Metasploit resource scripts
-* `smb_<IP>/` - Downloaded SMB share contents
-
----
-
-## Why Custom Implementations?
-
-### Advantages
-
-✅ **Easier Installation** - Just `pip install -r requirements.txt`  
-✅ **No External Dependencies** - No need for Hydra, Gobuster, etc.  
-✅ **Full Control** - Customize behavior exactly as needed  
-✅ **Better Error Handling** - Python exceptions vs parsing tool output  
-✅ **Cross-Platform** - Pure Python works anywhere  
-✅ **Learning Experience** - Understand how attacks actually work  
-
-### Performance
-
-* **Brute Force:** Multi-threaded (comparable to Hydra for most use cases)
-* **Web Fuzzing:** 30 concurrent threads (slightly slower than Go-based tools but sufficient)
-
-For maximum speed on huge wordlists, consider using the original tools (Hydra, ffuf). For 99% of use cases, the custom implementations are fast enough.
+| Template | Speed | Use Case |
+|----------|-------|----------|
+| `-T0` | Paranoid | IDS evasion |
+| `-T1` | Sneaky | IDS evasion |
+| `-T2` | Polite | Low bandwidth |
+| `-T3` | Normal | Default |
+| `-T4` | Aggressive | Fast networks |
+| `-T5` | Insane | Very fast networks |
 
 ---
 
-## Contributing
+## Troubleshooting
 
-Pull requests are welcome.
+### Common Issues
 
-* Keep changes minimal and focused
-* Test before submitting
-* Follow existing code style (PEP 8)
-* Add docstrings to new functions
+**Issue: Permission denied**
+```bash
+# Solution: Run with sudo
+sudo python3 reconix.py <target>
+```
+
+**Issue: Module not found (python-nmap, impacket, etc.)**
+```bash
+# Solution: Reinstall dependencies
+pip3 install -r requirements.txt --break-system-packages
+```
+
+**Issue: searchsploit not found**
+```bash
+# Solution: Install exploitdb
+sudo apt install exploitdb
+```
+
+**Issue: SecLists wordlists missing**
+```bash
+# Solution: Install seclists
+sudo apt install seclists
+```
+
+**Issue: Impacket SMB errors**
+```bash
+# Solution: Upgrade impacket
+pip3 install impacket --upgrade
+```
+
+**Issue: Responder not found**
+```bash
+# Solution: Install responder
+sudo apt install responder
+```
+
+**Issue: No hosts discovered**
+```bash
+# Solution: Try aggressive discovery
+sudo python3 reconix.py -PA <target>
+```
+
+### Dependency Verification
+
+Check if all dependencies are installed:
+
+```bash
+# System tools
+which nmap
+which searchsploit
+which msfconsole
+which responder
+
+# Python modules
+python3 -c "import nmap; import paramiko; import impacket; import requests"
+```
 
 ---
 
 ## Legal Disclaimer
 
-**This tool is for authorized security testing only.**
+**IMPORTANT: READ BEFORE USE**
 
-* Obtain explicit written permission before scanning
-* Only test systems you own or are authorized to assess
-* Unauthorized scanning and hacking is illegal
+This tool is provided for educational purposes and authorized security testing only.
 
-I am not responsible for misuse of this tool. You are solely responsible for your actions.
+**You must have explicit written permission before:**
+- Scanning any network you do not own
+- Testing any system you do not own
+- Accessing any computer system without authorization
+
+**Unauthorized access to computer systems is illegal and may result in:**
+- Criminal prosecution
+- Civil liability
+- Fines and imprisonment
+
+**By using this tool, you agree to:**
+- Use it only on systems you own or have authorization to test
+- Comply with all applicable laws and regulations
+- Accept full responsibility for your actions
+
+The author is not responsible for misuse or damage caused by this tool.
+
+---
+
+## Requirements
+
+### System Requirements
+- Operating System: Linux (Kali Linux, Ubuntu, Debian)
+- Python Version: 3.8 or higher
+- Privileges: Root/sudo access
+- RAM: Minimum 2GB
+- Storage: 500MB for tool and dependencies
+
+### Network Requirements
+- Active network interface
+- Internet connection (for exploit database updates)
+- Appropriate network permissions
+
+### Software Dependencies
+- nmap
+- python3-nmap
+- paramiko
+- impacket
+- requests
+- exploitdb
+- seclists (optional)
+- metasploit (optional)
+- responder (optional)
+
+---
+
+## Project Structure
+
+```
+reconix/
+│
+├── reconix.py              # Main executable
+├── installer.sh            # Automated installation script
+├── requirements.txt        # Python dependencies
+├── README.md              # This file
+│
+├── reports/               # Generated reports (created at runtime)
+│   ├── reconix_report_*.json
+│   └── reconix_report_*.html
+│
+└── exploits/              # Generated exploit scripts (created at runtime)
+    └── reconix_exploit_*.rc
+```
+
+---
+
+## Contributing
+
+Contributions are welcome. Please follow these guidelines:
+
+1. Fork the repository
+2. Create a feature branch
+3. Test your changes thoroughly
+4. Submit a pull request with clear description
+
+---
+
+## Support
+
+For issues, questions, or suggestions:
+- Open an issue on GitHub
+- Check existing issues first
+- Provide detailed information about your problem
+
+---
+
+## Acknowledgments
+
+- Nmap Project
+- Metasploit Framework
+- Impacket Library
+- SecLists Project
+- Responder Tool
 
 ---
 
 ## License
 
-This project is licensed under the **MIT License**.  
-See the `LICENSE` file for details.
+This project is provided as-is for educational and authorized security testing purposes.
 
 ---
 
-## Credits
-
-### External Tools Used
-
-* **Nmap** (network scanning)
-* **Metasploit Framework** (exploitation guidance)
-* **Responder** (MITM attacks - optional)
-* **SearchSploit** (exploit database)
-
-### Python Libraries
-
-* **python-nmap** (nmap wrapper)
-* **paramiko** (SSH protocol)
-* **impacket** (SMB/network protocols)
-* **requests** (HTTP client)
-* **Chart.js** (HTML report charts)
-
-### Wordlists
-
-* **SecLists** by Daniel Miessler
-* **RockYou** password list
-
----
-
-## Author
-
-GitHub: [@sawsage8050](https://github.com/Aditya-k-Jangid)
-
----
-
-## Known Issues
-
-* Aggressive host discovery (`-PA`) is slower but more accurate
-* Some wordlists may require manual extraction (rockyou.txt.gz)
-* Metasploit resource scripts require manual review before execution
-* VHost fuzzing requires a known domain name
-* SMB enumeration may fail on modern Windows with SMB signing enabled
-
----
-
-## TODO
-
-- [ ] Add HTTP parameter fuzzing
-- [ ] Add DNS zone transfer checks
-- [ ] Database storage for scan history
-- [ ] Optional GUI mode
-- [ ] Support for custom NSE scripts
-- [ ] Add email/report scheduling
-- [ ] Add exploit suggestion AI (based on CVE scores)
-
----
-
-## Changelog
-
-### v1.0 (Current)
-* Custom brute force engine (SSH/FTP/SMB)
-* Custom web fuzzer (directory/subdomain/vhost)
-* Metasploit automation with resource scripts
-* HTML reports with interactive charts
-* SMB enumeration and file download
-* Removed Hydra and Gobuster dependencies
-
----
-
-## FAQ
-
-**Q: Why is it asking for wordlists in /usr/share/seclists?**  
-A: Install SecLists: `sudo apt install seclists` or provide custom paths when prompted.
-
-**Q: Can I use this on Windows?**  
-A: Theoretically yes (Python is cross-platform), but nmap and some features require elevated privileges. Linux is recommended.
-
-**Q: Why is brute forcing so slow?**  
-A: Network speed, target rate limiting, and wordlist size affect speed. Use smaller wordlists or increase threads.
-
-**Q: Is this better than using Hydra/Gobuster directly?**  
-A: For most pentesting scenarios, yes - easier to install and customize. For maximum performance on huge wordlists, the original C/Go tools are faster.
+**Author:** CyberSec Student  
+**Version:** 1.0  
+**Last Updated:** 2024
 
 **Q: Can I contribute new modules?**  
 A: Yes! Fork the repo, add your module, and submit a pull request.
